@@ -1,0 +1,65 @@
+# scene_manager_node parameters for the FR3WML bottle+capsule cell.
+# Schema consumed unchanged by industrial_bt_framework/scene_manager_node.
+
+scene_manager_node:
+  ros__parameters:
+    frame_id:             "base_link"
+    force_republish_hz:   1.0
+    scene_update_wait_ms: 800
+
+    # End-effector links allowed to collide with every other object (ACM).
+    # Exactly the links the monolith whitelists in scene_handling.cpp.
+    attach_acm_links:
+      - "softgripper_link"
+      - "suctioncup_link"
+      - "gripper_body"
+      - "suction_cap"
+
+    # Every id in object_ids must have a matching entry below.
+    object_ids: ["table", "wall1", "wall2", "crate", "bottle", "capsule"]
+
+    objects:
+      table:
+        type: "box"
+        size:        [0.9, 1.2, 0.02]
+        position:    [0.0, -0.2, -0.01]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: false
+
+      wall1:
+        type: "box"
+        size:        [0.02, 1.2, 1.2]
+        position:    [-0.5, -0.20, 0.6]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: false
+
+      wall2:
+        type: "box"
+        size:        [0.9, 0.02, 1.2]
+        position:    [0.0, 0.60, 0.6]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: false
+
+      crate:
+        type: "mesh"
+        mesh_path:   "package://fr3wml_industrial_bt/meshes/crate/crate_50cL_reframed.stl"
+        scale:       [1.0, 1.0, 1.0]
+        position:    [-0.180, -0.480, 0.00]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: false
+
+      bottle:
+        type: "mesh"
+        mesh_path:   "package://fr3wml_industrial_bt/meshes/bottle/bottle_50cL_reframed.stl"
+        scale:       [1.0, 1.0, 1.0]
+        position:    [-0.160, -0.420, 0.00]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: true
+
+      capsule:
+        type: "cylinder"
+        radius: 0.0205
+        height: 0.004
+        position:    [0.23, -0.14, 0.002]
+        orientation: [0.0, 0.0, 0.0, 1.0]
+        dynamic: true

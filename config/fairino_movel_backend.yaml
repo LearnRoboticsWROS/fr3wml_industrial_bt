@@ -1,0 +1,21 @@
+# Parameters consumed by fr3wml_industrial_bt::FairinoMoveLBackend.
+# The bt_runner_node forwards this file (via cartesian_backend_params_file)
+# as a raw YAML::Node to the plugin's initialize(...).
+
+cartesian_service_name: "/fairino/movel_pose"
+
+# Translation from wrist3_link to the flange that the Fairino SDK expects
+# for movel. In the FR3WML URDF this comes from the
+# world_to_gripper joint origin (xyz="0 0 0.098").
+flange_offset_xyz: [0.0, 0.0, 0.098]
+
+# Fallback when a motion profile does not set movel_speed_percent.
+default_speed_percent: 50.0
+
+# Passed to ExecutePoseMotion.srv verbatim.
+tool_id: 0
+user_id: 0
+load_frames_before_motion: false
+
+# Max time to wait for the service to return before giving up.
+call_timeout_sec: 60.0

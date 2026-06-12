@@ -1,0 +1,98 @@
+# bt_runner_node parameters for the FR3WML bottle+capsule pick-and-place.
+# All values are those of the monolithic fr3wml_camera_gripper application,
+# just reorganised as parameters consumed by industrial_bt_framework.
+
+/**:
+  ros__parameters:
+    # ── Robot (MoveIt side) ─────────────────────────────────────────────────
+    planning_group:    "fr3wml"
+    home_named_target: "pos1"
+
+    # ── Cartesian backend plugin (vendor = Fairino movel) ───────────────────
+    cartesian_backend: "fr3wml_industrial_bt/FairinoMoveLBackend"
+    # Set by the launch file to the absolute path of
+    # share/fr3wml_industrial_bt/config/fairino_movel_backend.yaml.
+    cartesian_backend_params_file: ""
+
+    # ── Scene manager service endpoints (framework defaults) ────────────────
+    scene_remove_service:   "/scene/remove_object"
+    scene_set_pose_service: "/scene/set_object_pose"
+
+    # ── Tool registry ───────────────────────────────────────────────────────
+    tools:
+      gripper_primary:
+        activate_service: "/gripper/close"
+        release_service:  "/gripper/idle"
+      suction_primary:
+        activate_service: "/gripper/suction_on"
+        release_service:  "/gripper/suction_off"
+      # Soft gripper in OPEN state: used in the vision capsule pick pipeline.
+      # The soft fingers spread wide so they don't collide with the capsule
+      # when the suction cup descends. release_service brings the gripper
+      # back to its idle (neutral) position after the capsule has been placed.
+      softgripper_open:
+        activate_service: "/gripper/open"
+        release_service:  "/gripper/idle"
+
+    # ── Task parameters (pushed to BT blackboard under short keys) ──────────
+    task_parameters:
+      # Joint targets (degrees).
+      # pre_pick_bottle: re-tuned to be closer to the bottle physical pose
+      # (was [61, -83, 41, -49, -94, -74]) — reduces transit time.
+      pre_pick_bottle_joints_deg:   [ 61.0,  -98.0,  103.0, -97.0, -93.0, -74.0]
+      pre_pick_capsule_joints_deg:  [113.0, -131.0,  116.0, -75.0, -87.0, -74.0]
+      pre_place_bottle_joints_deg:  [ 99.0,  -83.0,   47.0, -56.0, -89.0, -74.0]
+
+      # Capsule pre-place joint config (captured via MoveIt teaching in
+      # bringup_fr3wml.launch.py and read back from /joint_states). Reaching
+      # this joint config from the post-pick-retreat state puts the cup over
+      # the bottle with a consistent "tool down" orientation, which then
+      # feeds a clean MoveL descent (use_current_orientation=true) onto
+      # capsule_place_xyz. Replaces the earlier Cartesian PTP that suffered
+      # from j6 spin (MoveIt↔SDK IK branch mismatch).
+      pre_place_capsule_joints_deg: [103.0,  -95.0, 103.0, -98.0,  -91.0,  -74.0]
+
+      # Wrist3_link positions in base_link (NOT tool-tip / TCP positions).
+      # The backend converts wrist3 -> flange via the wrist3_to_flange_z
+      # offset (0.098).
+      # bottle pick/place Z raised from 0.420 to 0.460 (higher approach over
+      # the bottle so the cup doesn't graze the bottle cap during transit).
+      bottle_pick_xyz:   [-0.160, -0.420, 0.430]
+      bottle_place_xyz:  [ 0.200, -0.422, 0.430]
+      capsule_pick_xyz:  [ 0.230, -0.140, 0.195]
+      capsule_place_xyz: [ 0.200, -0.422, 0.439]
+
+      # Cartesian pre-place — kept for reference / future fallback, NOT used
+      # by the current PlaceCapsuleFromVision subtree.
+      # The earlier Cartesian PTP (MoveToPose → ExecuteCartesianSegment)
+      # caused j6 spin because MoveIt's IK branch differed from the SDK's.
+      # The current subtree uses pre_place_capsule_joints_deg instead (joint
+      # PTP: deterministic, no IK ambiguity).
+      capsule_pre_place_xyz: [ 0.200, -0.420, 0.544]
+
+      # TCP offset: zero because positions above are already wrist3_link.
+      # The FairinoMoveLBackend adds the wrist3->flange offset (0.098 m)
+      # internally, matching the monolith's executeMoveL convention.
+      softgripper_tcp_offset_xyz: [0.0, 0.0, 0.0]
+      suctioncup_tcp_offset_xyz:  [0.0, 0.0, 0.0]
+      tool_offset_rpy_deg:        [0.0, 0.0, 0.0]
+
+      # Retreat distances (world Z, meters — added via OffsetPoseInBaseFrame).
+      # bottle_place_retreat_m lowered from 0.1 to 0.05 (faster retreat after
+      # bottle release — workspace is clear above the place pose).
+      bottle_pick_retreat_m:   0.4
+      bottle_place_retreat_m:  0.05
+      capsule_pick_retreat_m:  0.05
+      capsule_place_retreat_m: 0.05
+
+      # Scene: object ground-level Z for scene teleport after placement
+      bottle_ground_z:  0.001
+      capsule_ground_z: 0.250
+
+      # Scene ids + tool names (used as BT blackboard strings)
+      bottle_id:    "bottle"
+      capsule_id:   "capsule"
+      bottle_tool:  "gripper_primary"
+      capsule_tool: "suction_primary"
+
+      scene_update_wait_ms: 800

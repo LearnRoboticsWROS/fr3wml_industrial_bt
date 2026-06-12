@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Vision variant of bottle_capsule_task.xml.
+
+  Bottle pick, bottle place, capsule place and the home move are IDENTICAL to
+  the hardcoded tree. Only the capsule PICK is replaced: its 6D pose is taken
+  live from /detected_objects/poses_6d (published by the Jetson 6D pose
+  estimator) and transformed from camera_color_optical_frame into base_link
+  via tf2. The suction-cup end-effector is aligned so its Z axis is
+  anti-parallel to the detected plane normal; wrist3 is offset above the
+  capsule centroid by `capsule_suction_tool_offset_z` along the tool Z.
+-->
+<root BTCPP_format="4"
+      main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="BottleCapsuleTaskVision">
+      <LogMessage message="FR3WML pick-and-place (vision): start"/>
+
+      <SubTree ID="PickPart"
+               pre_pick_joints="{pre_pick_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               pick_xyz="{bottle_pick_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="{bottle_pick_retreat_m}"
+               pick_profile="pick_bottle"
+               retreat_profile="retreat_bottle_pick"
+               _autoremap="true"/>
+
+      <SubTree ID="PlacePart"
+               pre_place_joints="{pre_place_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               place_xyz="{bottle_place_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="0.05"
+               object_ground_z="{bottle_ground_z}"
+               place_profile="place_bottle"
+               retreat_profile="retreat_bottle_place"
+               _autoremap="true"/>
+
+      <SubTree ID="PickCapsuleFromVision"
+               pre_pick_joints="{pre_pick_capsule_joints_deg}"
+               part_id="{capsule_id}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_pick_retreat_m}"
+               pick_profile="pick_capsule"
+               retreat_profile="retreat_capsule_pick"
+               _autoremap="true"/>
+
+      <!-- Capsule place: dedicated subtree using JOINT PTP to a known config
+           captured via MoveIt teaching, then a MoveL descent to place.
+           Joint PTP avoids the IK-branch mismatch that caused j6 spin when
+           we used a Cartesian PTP via MoveToPose. -->
+      <SubTree ID="PlaceCapsuleFromVision"
+               pre_place_joints="{pre_place_capsule_joints_deg}"
+               part_id="{capsule_id}"
+               place_xyz="{capsule_place_xyz}"
+               tool_offset="{suctioncup_tcp_offset_xyz}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_place_retreat_m}"
+               object_ground_z="{capsule_ground_z}"
+               place_profile="place_capsule"
+               retreat_profile="retreat_capsule_place"
+               _autoremap="true"/>
+
+      <!-- Capsule is now on the bottle. Return the soft gripper to idle
+           (neutral) — it was held OPEN throughout the capsule pick/place
+           by PickCapsuleFromVision to avoid finger/capsule collisions. -->
+      <ReleaseTool tool="softgripper_open"/>
+
+      <MoveToNamedTarget target="pos1"
+                         profile="home"/>
+      <LogMessage message="FR3WML pick-and-place (vision): complete"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Identical to bottle_capsule_task.xml -->
+  <BehaviorTree ID="PickPart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_pick_joints}"
+                         profile="transit"/>
+      <StoreCurrentPose pose_key="approach_pose"/>
+      <RemoveSceneObject object_id="{part_id}"/>
+      <ComputeTCPTarget target_xyz="{pick_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="pick_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_tcp"
+                               profile="{pick_profile}"/>
+      <ActivateTool tool="{tool}"/>
+      <OffsetPoseInBaseFrame in_key="pick_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{retreat_m}"
+                             out_key="pick_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_retreat_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Identical to bottle_capsule_task.xml -->
+  <BehaviorTree ID="PlacePart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_place_joints}"
+                         profile="transit"/>
+      <ComputeTCPTarget target_xyz="{place_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="place_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_tcp"
+                               profile="{place_profile}"/>
+      <ReleaseTool tool="{tool}"/>
+      <TeleportSceneObject object_id="{part_id}"
+                           pose_key="place_tcp"
+                           force_upright="true"
+                           override_z="{object_ground_z}"/>
+      <OffsetPoseInBaseFrame in_key="place_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{retreat_m}"
+                             out_key="place_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_retreat_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- NEW: vision-driven capsule pick in 3 stages (industrial pattern):
+       1. MoveJ to pre_pick_joints  (safe staging config).
+       2. MoveJ (IK seeded at current state) to an APPROACH pose that
+          already has the final grip orientation, offset along the tool Z
+          by capsule_approach_offset_z (typ. -0.10 m) so it sits above
+          the capsule. Handles the big orientation change in joint space.
+       3. MoveL down from approach to pick — constant orientation, short
+          segment, stable local IK.
+       4. Suction on, MoveL retreat in base Z. -->
+  <BehaviorTree ID="PickCapsuleFromVision">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_pick_joints}"
+                         profile="transit"/>
+
+      <!-- Open the soft gripper to spread the fingers wide. Without this, the
+           fingers (in idle position) can collide with the capsule when the
+           suction cup descends. The gripper stays open through the whole
+           capsule pick + place sequence; MainTree returns it to idle after
+           the capsule has been placed on the bottle. -->
+      <ActivateTool tool="softgripper_open"/>
+
+      <RemoveSceneObject object_id="{part_id}"/>
+
+      <GetDetectedObjectPose topic="{capsule_pose_topic}"
+                             object_index="0"
+                             target_frame="base_link"
+                             wait_timeout_sec="{capsule_wait_timeout_sec}"
+                             tf_timeout_sec="{capsule_tf_timeout_sec}"
+                             out_key="capsule_det_pose_raw"/>
+
+      <!-- Empirical correction in base_link frame (vec3 from YAML).
+           Compensates a small systematic bias between the detected centroid
+           and the actual physical centroid. [0,0,0] = no-op. -->
+      <OffsetPoseInBaseFrame in_key="capsule_det_pose_raw"
+                             xyz="{capsule_pick_correction_xyz}"
+                             out_key="capsule_det_pose"/>
+
+      <ComputeSuctionPickPose detected_pose_key="capsule_det_pose"
+                              tool_offset_z="{capsule_suction_tool_offset_z}"
+                              flip_z="true"
+                              out_key="pick_tcp"/>
+
+      <OffsetPoseInToolFrame in_key="pick_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{capsule_approach_offset_z}"
+                             out_key="approach_tcp"/>
+
+      <!-- Mov 2: SDK MoveL to approach (changes BOTH position and orientation
+           via SLERP). Same solver as Mov 3 below → no MoveIt↔SDK branch
+           mismatch, which was causing j6 spin before this change. -->
+      <ExecuteCartesianSegment pose_key="approach_tcp"
+                               profile="approach_capsule"/>
+
+      <!-- Mov 3: SDK MoveL to pick (orientation constant, pure descent
+           along the capsule normal). Guaranteed Cartesian-straight line. -->
+      <ExecuteCartesianSegment pose_key="pick_tcp"
+                               profile="{pick_profile}"/>
+
+      <ActivateTool tool="{tool}"/>
+
+      <!-- Mov 4: SDK MoveL retreat. dz uses capsule_approach_offset_z
+           (negative = "back along tool Z" = up out of the capsule surface),
+           so this segment is the EXACT reverse of Mov 3. Cleaner than
+           retreating in world Z because the lift is perpendicular to the
+           capsule face, not oblique. -->
+      <OffsetPoseInToolFrame in_key="pick_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{capsule_approach_offset_z}"
+                             out_key="post_pick_tcp"/>
+      <ExecuteCartesianSegment pose_key="post_pick_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Vision-driven capsule place.
+       Flow (after capsule pick retreat):
+         1. MoveToJointTarget(pre_place_joints) — PTP (MoveJ via MoveIt) to a
+            known joint config captured by MoveIt teaching. Joint-space PTP
+            has no IK ambiguity → no risk of j6 spin in the next MoveL.
+         2. ComputeTCPTarget(place_xyz, use_current_orientation=true)
+            → place_tcp (orientation = FK at pre_place_joints).
+         3. ExecuteCartesianSegment(place_tcp) — MoveL straight down to place.
+         4. ReleaseTool (suction off).
+         5. TeleportSceneObject — move capsule mesh onto bottle in scene.
+         6. OffsetPoseInBaseFrame retreat → place_retreat_tcp.
+         7. ExecuteCartesianSegment(place_retreat_tcp) — MoveL retreat. -->
+  <BehaviorTree ID="PlaceCapsuleFromVision">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_place_joints}"
+                         profile="transit"/>
+
+      <ComputeTCPTarget target_xyz="{place_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="place_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_tcp"
+                               profile="{place_profile}"/>
+
+      <ReleaseTool tool="{tool}"/>
+
+      <TeleportSceneObject object_id="{part_id}"
+                           pose_key="place_tcp"
+                           force_upright="true"
+                           override_z="{object_ground_z}"/>
+
+      <OffsetPoseInBaseFrame in_key="place_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{retreat_m}"
+                             out_key="place_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_retreat_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="ActivateTool"
+            editable="true">
+      <input_port name="tool"/>
+    </Action>
+    <Action ID="ComputeTCPTarget"
+            editable="true">
+      <input_port name="target_xyz"/>
+      <input_port name="tcp_offset_xyz"/>
+      <input_port name="tcp_offset_rpy_deg"/>
+      <input_port name="use_current_orientation"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="ComputeSuctionPickPose"
+            editable="true">
+      <input_port name="detected_pose_key"/>
+      <input_port name="tool_offset_z"/>
+      <input_port name="flip_z"/>
+      <input_port name="reference_pose_key"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="ExecuteCartesianSegment"
+            editable="true">
+      <input_port name="pose_key"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="GetDetectedObjectPose"
+            editable="true">
+      <input_port name="topic"/>
+      <input_port name="object_index"/>
+      <input_port name="target_frame"/>
+      <input_port name="wait_timeout_sec"/>
+      <input_port name="tf_timeout_sec"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="LogMessage"
+            editable="true">
+      <input_port name="message"/>
+    </Action>
+    <Action ID="MoveToJointTarget"
+            editable="true">
+      <input_port name="joints_deg"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="MoveToNamedTarget"
+            editable="true">
+      <input_port name="target"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="MoveToPose"
+            editable="true">
+      <input_port name="pose_key"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="OffsetPoseInBaseFrame"
+            editable="true">
+      <input_port name="in_key"/>
+      <input_port name="dx"/>
+      <input_port name="dy"/>
+      <input_port name="dz"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="OffsetPoseInToolFrame"
+            editable="true">
+      <input_port name="in_key"/>
+      <input_port name="dx"/>
+      <input_port name="dy"/>
+      <input_port name="dz"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="ReleaseTool"
+            editable="true">
+      <input_port name="tool"/>
+    </Action>
+    <Action ID="RemoveSceneObject"
+            editable="true">
+      <input_port name="object_id"/>
+    </Action>
+    <Action ID="StoreCurrentPose"
+            editable="true">
+      <input_port name="pose_key"/>
+    </Action>
+    <Action ID="TeleportSceneObject"
+            editable="true">
+      <input_port name="object_id"/>
+      <input_port name="pose_key"/>
+      <input_port name="force_upright"/>
+      <input_port name="override_z"/>
+    </Action>
+  </TreeNodesModel>
+
+</root>

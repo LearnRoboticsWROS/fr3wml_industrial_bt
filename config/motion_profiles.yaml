@@ -1,0 +1,58 @@
+# Motion profiles for the FR3WML bottle+capsule application.
+#
+# OMPL defaults come from the monolith (ptp_velocity_scaling=0.80, same accel).
+# `movel_speed_percent` encodes the per-segment Fairino SDK speed used by the
+# FairinoMoveLBackend plugin. Segment-specific profile names are referenced
+# from bt_trees/bottle_capsule_task.xml.
+
+motion_profiles:
+  default:
+    velocity_scaling:         0.5
+    acceleration_scaling:     0.5
+    planning_time_sec:        4.0
+    num_planning_attempts:    30
+    max_free_space_retries:   15
+    movel_speed_percent:      50
+
+  transit:
+    velocity_scaling:         0.8
+    acceleration_scaling:     0.8
+    planning_time_sec:        4.0
+    num_planning_attempts:    30
+    max_free_space_retries:   15
+    movel_speed_percent:      60
+
+  home:
+    velocity_scaling:         0.8
+    acceleration_scaling:     0.8
+    planning_time_sec:        4.0
+    num_planning_attempts:    30
+    max_free_space_retries:   15
+    movel_speed_percent:      50
+
+  # Bottle pick-and-place speeds (match the monolith)
+  pick_bottle:          { movel_speed_percent: 90 }
+  retreat_bottle_pick:  { movel_speed_percent: 90 }
+  place_bottle:         { movel_speed_percent: 90 }
+  retreat_bottle_place: { movel_speed_percent: 90 }
+
+  # Capsule pick-and-place speeds
+  pick_capsule:          { movel_speed_percent: 90 }
+  retreat_capsule_pick:  { movel_speed_percent: 90 }
+  place_capsule:         { movel_speed_percent: 90 }
+  retreat_capsule_place: { movel_speed_percent: 90 }
+
+  # Vision-driven approach to the capsule.
+  # Used by PickCapsuleFromVision for the FIRST MoveL (Mov 2): the SDK MoveL
+  # interpolates BOTH position and orientation (SLERP) from pre_pick_capsule
+  # to the vision-computed approach pose. Speed kept conservative because the
+  # orientation also changes — wrist joints move more than for a constant-
+  # orientation MoveL. Tune up after stable runs.
+  approach_capsule:      { movel_speed_percent: 80 }
+
+  # Vision-driven LONG transit from capsule pick retreat to pre-place above the
+  # bottle. Replaces a MoveToPose (MoveIt) call after we observed the IK-branch
+  # mismatch with the SDK causing a j6 spin. As an all-MoveL pipeline (single
+  # solver, no branch mismatch), this transit can run at max speed safely.
+  # 95% is the upper bound enforced by fairino_bridge (max_speed=95 default).
+  transit_capsule_place: { movel_speed_percent: 95 }

@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4"
+      main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="BottleCapsuleTask">
+      <LogMessage message="FR3WML pick-and-place: start"/>
+      <SubTree ID="PickPart"
+               pre_pick_joints="{pre_pick_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               pick_xyz="{bottle_pick_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="{bottle_pick_retreat_m}"
+               pick_profile="pick_bottle"
+               retreat_profile="retreat_bottle_pick"
+               _autoremap="true"/>
+      <SubTree ID="PlacePart"
+               pre_place_joints="{pre_place_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               place_xyz="{bottle_place_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="0.05"
+               object_ground_z="{bottle_ground_z}"
+               place_profile="place_bottle"
+               retreat_profile="retreat_bottle_place"
+               _autoremap="true"/>
+      <MoveToNamedTarget target="pos2"
+                         profile="home"/>
+      <SubTree ID="PickPart"
+               pre_pick_joints="{pre_pick_capsule_joints_deg}"
+               part_id="{capsule_id}"
+               pick_xyz="{capsule_pick_xyz}"
+               tool_offset="{suctioncup_tcp_offset_xyz}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_pick_retreat_m}"
+               pick_profile="pick_capsule"
+               retreat_profile="retreat_capsule_pick"
+               _autoremap="true"/>
+      <SubTree ID="PlacePart"
+               pre_place_joints="{pre_place_bottle_joints_deg}"
+               part_id="{capsule_id}"
+               place_xyz="{capsule_place_xyz}"
+               tool_offset="{suctioncup_tcp_offset_xyz}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_place_retreat_m}"
+               object_ground_z="{capsule_ground_z}"
+               place_profile="place_capsule"
+               retreat_profile="retreat_capsule_place"
+               _autoremap="true"/>
+      <MoveToNamedTarget target="pos1"
+                         profile="home"/>
+      <LogMessage message="FR3WML pick-and-place: complete"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PickPart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_pick_joints}"
+                         profile="transit"/>
+      <StoreCurrentPose pose_key="approach_pose"/>
+      <RemoveSceneObject object_id="{part_id}"/>
+      <ComputeTCPTarget target_xyz="{pick_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="pick_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_tcp"
+                               profile="{pick_profile}"/>
+      <ActivateTool tool="{tool}"/>
+      <OffsetPoseInBaseFrame in_key="pick_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{retreat_m}"
+                             out_key="pick_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_retreat_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PlacePart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_place_joints}"
+                         profile="transit"/>
+      <ComputeTCPTarget target_xyz="{place_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="place_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_tcp"
+                               profile="{place_profile}"/>
+      <ReleaseTool tool="{tool}"/>
+      <TeleportSceneObject object_id="{part_id}"
+                           pose_key="place_tcp"
+                           force_upright="true"
+                           override_z="{object_ground_z}"/>
+      <OffsetPoseInBaseFrame in_key="place_tcp"
+                             dx="0.0"
+                             dy="0.0"
+                             dz="{retreat_m}"
+                             out_key="place_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_retreat_tcp"
+                               profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="ActivateTool"
+            editable="true">
+      <input_port name="tool"/>
+    </Action>
+    <Action ID="ComputeTCPTarget"
+            editable="true">
+      <input_port name="target_xyz"/>
+      <input_port name="tcp_offset_xyz"/>
+      <input_port name="tcp_offset_rpy_deg"/>
+      <input_port name="use_current_orientation"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="ExecuteCartesianSegment"
+            editable="true">
+      <input_port name="pose_key"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="LogMessage"
+            editable="true">
+      <input_port name="message"/>
+    </Action>
+    <Action ID="MoveToJointTarget"
+            editable="true">
+      <input_port name="joints_deg"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="MoveToNamedTarget"
+            editable="true">
+      <input_port name="target"/>
+      <input_port name="profile"/>
+    </Action>
+    <Action ID="OffsetPoseInBaseFrame"
+            editable="true">
+      <input_port name="in_key"/>
+      <input_port name="dx"/>
+      <input_port name="dy"/>
+      <input_port name="dz"/>
+      <input_port name="out_key"/>
+    </Action>
+    <Action ID="ReleaseTool"
+            editable="true">
+      <input_port name="tool"/>
+    </Action>
+    <Action ID="RemoveSceneObject"
+            editable="true">
+      <input_port name="object_id"/>
+    </Action>
+    <Action ID="StoreCurrentPose"
+            editable="true">
+      <input_port name="pose_key"/>
+    </Action>
+    <Action ID="TeleportSceneObject"
+            editable="true">
+      <input_port name="object_id"/>
+      <input_port name="pose_key"/>
+      <input_port name="force_upright"/>
+      <input_port name="override_z"/>
+    </Action>
+  </TreeNodesModel>
+
+</root>

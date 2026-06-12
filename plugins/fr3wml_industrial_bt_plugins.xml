@@ -1,0 +1,13 @@
+<library path="fr3wml_industrial_bt_backends">
+  <class name="fr3wml_industrial_bt/FairinoMoveLBackend"
+         type="fr3wml_industrial_bt::FairinoMoveLBackend"
+         base_class_type="industrial_bt_framework::CartesianBackend">
+    <description>
+      CartesianBackend plugin for Fairino FR3WML robots.
+      Delegates TCP linear motion to fairino_bridge's ExecutePoseMotion
+      service (/fairino/movel_pose) which calls the vendor SDK movel.
+      Converts the incoming TCP pose to a flange pose using a YAML-configurable
+      flange offset (wrist3->flange).
+    </description>
+  </class>
+</library>

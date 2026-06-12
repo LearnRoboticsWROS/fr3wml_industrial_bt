@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fr3wml_industrial_bt</name>
+  <version>0.1.0</version>
+  <description>
+    FR3WML bringup example for industrial_bt_framework.
+    Replicates the monolithic fr3wml_camera_gripper bottle/capsule pick-and-place
+    using only framework extension points (no framework edits):
+    a vendor CartesianBackend plugin wrapping fairino_bridge/movel, scene YAML,
+    tool registry, task parameters and a primitive-only BT tree.
+  </description>
+  <maintainer email="fra@example.com">fra</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>pluginlib</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>yaml_cpp_vendor</depend>
+  <depend>fairino_bridge</depend>
+  <depend>industrial_bt_framework</depend>
+
+  <!--
+    NOTE: fr3wml_fr5_camera_gripper_moveit_config is NOT declared as a
+    dependency on purpose. It depends on this package (it includes our URDF
+    via xacro), so an exec_depend here would create a circular dependency.
+    The launch files in this package resolve fr3wml_fr5_camera_gripper_moveit_config
+    at runtime via get_package_share_directory; both packages just need to
+    be present in the workspace, no formal dependency is required.
+  -->
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <industrial_bt_framework plugin="${prefix}/plugins/fr3wml_industrial_bt_plugins.xml"/>
+  </export>
+</package>

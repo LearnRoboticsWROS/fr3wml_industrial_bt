@@ -1,0 +1,51 @@
+# bt_runner_node parameters layered ON TOP of bt_runner.yaml for the vision
+# pipeline. The launch passes bt_runner.yaml first (full base config) and then
+# this file second; ROS 2 merges the parameter trees, so these keys only
+# override/extend — they don't duplicate the base config.
+#
+# Added here:
+#   * task_parameters for the new vision primitives (pose topic, timeouts, and
+#     the wrist3 -> suction-cup tip offset along the tool Z axis).
+# Nothing else is overridden; planning_group, tools, scene services, motion
+# profiles and the Cartesian backend all come from bt_runner.yaml unchanged.
+
+/**:
+  ros__parameters:
+    task_parameters:
+      # PoseArray topic published by the Jetson-side 6D pose estimator.
+      capsule_pose_topic: "/detected_objects/poses_6d"
+
+      # How long GetDetectedObjectPose waits for at least one detection before
+      # giving up (BT returns FAILURE on timeout).
+      capsule_wait_timeout_sec: 5.0
+
+      # How long tf2 is allowed to block while resolving
+      # camera_color_optical_frame -> base_link.
+      capsule_tf_timeout_sec: 2.0
+
+      # Distance from wrist3_link to the suction-cup tip along the tool Z axis.
+      # ComputeSuctionPickPose uses this to place wrist3 "behind" the detected
+      # capsule centroid so the cup lands on the surface.
+      # Measured via the ArUco calibration touch sequence: with the marker on
+      # the table (z=0 in base_link) and the cup tip exactly on the marker,
+      # the wrist3_link height vs base_link was 0.1856 / 0.1844 (averaged
+      # = 0.1850 m). Replace 0.190 only after the j2 URDF fix is active.
+      capsule_suction_tool_offset_z: 0.185
+
+      # Empirical correction applied to the capsule pose AFTER vision detection
+      # + tf2 transform to base_link, BEFORE ComputeSuctionPickPose.
+      # Added in base_link frame: x, y, z (meters).
+      # Use this to compensate small systematic biases between the detected
+      # centroid and the actual physical centroid (e.g. the cup lands +25mm
+      # in base_link X from the real capsule center → put -0.025 here to
+      # shift the target inward).
+      # [0, 0, 0] = no correction (raw vision is used).
+      # Tuned empirically by observing where the cup lands vs the real center.
+      capsule_pick_correction_xyz: [-0.025, 0.0, 0.0]
+
+      # Signed offset (meters) applied in the TOOL frame along Z to produce the
+      # approach pose from the pick pose. Tool Z points INTO the object surface,
+      # so a NEGATIVE value places the approach pose ABOVE the capsule along the
+      # surface normal (typical industrial approach distance: -0.10 m).
+      # Consumed by OffsetPoseInToolFrame inside PickCapsuleFromVision.
+      capsule_approach_offset_z: -0.10

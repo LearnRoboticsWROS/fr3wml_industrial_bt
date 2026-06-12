@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Visual variant of bottle_capsule_task_vision.xml for Groot2.
+
+  Same logic; port defaults are listed in the TreeNodesModel so Groot2 can
+  render the tree without a live bt_runner_node_visual connection.
+
+  _autoremap="true" is required so subtree nodes can access robot_client and
+  motion_profiles from the root blackboard. Every port used inside a subtree
+  with a default must be explicitly specified here.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+
+  <BehaviorTree ID="MainTree">
+    <Sequence name="BottleCapsuleTaskVision">
+      <LogMessage message="FR3WML pick-and-place (vision): start"/>
+
+      <SubTree ID="PickPart" _autoremap="true"
+               pre_pick_joints="{pre_pick_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               pick_xyz="{bottle_pick_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="{bottle_pick_retreat_m}"
+               pick_profile="pick_bottle"
+               retreat_profile="retreat_bottle_pick"/>
+
+      <SubTree ID="PlacePart" _autoremap="true"
+               pre_place_joints="{pre_place_bottle_joints_deg}"
+               part_id="{bottle_id}"
+               place_xyz="{bottle_place_xyz}"
+               tool_offset="{softgripper_tcp_offset_xyz}"
+               tool="{bottle_tool}"
+               retreat_m="{bottle_place_retreat_m}"
+               object_ground_z="{bottle_ground_z}"
+               place_profile="place_bottle"
+               retreat_profile="retreat_bottle_place"/>
+
+      <SubTree ID="PickCapsuleFromVision" _autoremap="true"
+               pre_pick_joints="{pre_pick_capsule_joints_deg}"
+               part_id="{capsule_id}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_pick_retreat_m}"
+               pick_profile="pick_capsule"
+               retreat_profile="retreat_capsule_pick"/>
+
+      <SubTree ID="PlaceCapsuleFromVision" _autoremap="true"
+               pre_place_joints="{pre_place_capsule_joints_deg}"
+               part_id="{capsule_id}"
+               place_xyz="{capsule_place_xyz}"
+               tool_offset="{suctioncup_tcp_offset_xyz}"
+               tool="{capsule_tool}"
+               retreat_m="{capsule_place_retreat_m}"
+               object_ground_z="{capsule_ground_z}"
+               place_profile="place_capsule"
+               retreat_profile="retreat_capsule_place"/>
+
+      <!-- Capsule placed: bring the soft gripper back from OPEN to IDLE. -->
+      <ReleaseTool tool="softgripper_open"/>
+
+      <MoveToNamedTarget target="pos1" profile="home"/>
+      <LogMessage message="FR3WML pick-and-place (vision): complete"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PickPart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_pick_joints}" profile="transit"/>
+      <StoreCurrentPose pose_key="approach_pose"/>
+      <RemoveSceneObject object_id="{part_id}"/>
+      <ComputeTCPTarget target_xyz="{pick_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="pick_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_tcp" profile="{pick_profile}"/>
+      <ActivateTool tool="{tool}"/>
+      <OffsetPoseInBaseFrame in_key="pick_tcp" dx="0.0" dy="0.0" dz="{retreat_m}" out_key="pick_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="pick_retreat_tcp" profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PlacePart">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_place_joints}" profile="transit"/>
+      <ComputeTCPTarget target_xyz="{place_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        tcp_offset_rpy_deg="0.0;0.0;0.0"
+                        use_current_orientation="true"
+                        out_key="place_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_tcp" profile="{place_profile}"/>
+      <ReleaseTool tool="{tool}"/>
+      <TeleportSceneObject object_id="{part_id}" pose_key="place_tcp"
+                           force_upright="true" override_z="{object_ground_z}"/>
+      <OffsetPoseInBaseFrame in_key="place_tcp" dx="0.0" dy="0.0" dz="{retreat_m}" out_key="place_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_retreat_tcp" profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="PickCapsuleFromVision">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_pick_joints}" profile="transit"/>
+      <!-- Open the soft gripper so the fingers don't collide with the capsule
+           during suction descent. MainTree returns it to idle after place. -->
+      <ActivateTool tool="softgripper_open"/>
+      <RemoveSceneObject object_id="{part_id}"/>
+      <GetDetectedObjectPose topic="{capsule_pose_topic}"
+                             object_index="0"
+                             target_frame="base_link"
+                             wait_timeout_sec="{capsule_wait_timeout_sec}"
+                             tf_timeout_sec="{capsule_tf_timeout_sec}"
+                             out_key="capsule_det_pose_raw"/>
+      <!-- Empirical base-frame correction (vec3 from YAML). -->
+      <OffsetPoseInBaseFrame in_key="capsule_det_pose_raw"
+                             xyz="{capsule_pick_correction_xyz}"
+                             out_key="capsule_det_pose"/>
+      <ComputeSuctionPickPose detected_pose_key="capsule_det_pose"
+                              tool_offset_z="{capsule_suction_tool_offset_z}"
+                              flip_z="true"
+                              out_key="pick_tcp"/>
+      <OffsetPoseInToolFrame in_key="pick_tcp" dx="0.0" dy="0.0"
+                             dz="{capsule_approach_offset_z}"
+                             out_key="approach_tcp"/>
+      <!-- Mov 2: SDK MoveL to approach (SLERP orientation + linear position) -->
+      <ExecuteCartesianSegment pose_key="approach_tcp" profile="approach_capsule"/>
+      <!-- Mov 3: SDK MoveL to pick (constant orientation, pure descent) -->
+      <ExecuteCartesianSegment pose_key="pick_tcp" profile="{pick_profile}"/>
+      <ActivateTool tool="{tool}"/>
+      <!-- Mov 4: SDK MoveL retreat in TOOL frame (exact reverse of Mov 3) -->
+      <OffsetPoseInToolFrame in_key="pick_tcp" dx="0.0" dy="0.0"
+                             dz="{capsule_approach_offset_z}"
+                             out_key="post_pick_tcp"/>
+      <ExecuteCartesianSegment pose_key="post_pick_tcp" profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Vision-driven capsule place (visual variant).
+       Joint PTP to a taught config, then MoveL descent. -->
+  <BehaviorTree ID="PlaceCapsuleFromVision">
+    <Sequence>
+      <MoveToJointTarget joints_deg="{pre_place_joints}" profile="transit"/>
+
+      <ComputeTCPTarget target_xyz="{place_xyz}"
+                        tcp_offset_xyz="{tool_offset}"
+                        use_current_orientation="true"
+                        out_key="place_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_tcp" profile="{place_profile}"/>
+
+      <ReleaseTool tool="{tool}"/>
+
+      <TeleportSceneObject object_id="{part_id}" pose_key="place_tcp"
+                           force_upright="true" override_z="{object_ground_z}"/>
+
+      <OffsetPoseInBaseFrame in_key="place_tcp" dx="0.0" dy="0.0"
+                             dz="{retreat_m}" out_key="place_retreat_tcp"/>
+      <ExecuteCartesianSegment pose_key="place_retreat_tcp" profile="{retreat_profile}"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- ────────────────── Port models for Groot2 ────────────────── -->
+  <TreeNodesModel>
+    <Action ID="MoveToNamedTarget">
+      <input_port  name="target"  default="home"/>
+      <input_port  name="profile" default="default"/>
+    </Action>
+    <Action ID="MoveToJointTarget">
+      <input_port  name="joints_deg"/>
+      <input_port  name="profile" default="default"/>
+    </Action>
+    <Action ID="MoveToPose">
+      <input_port  name="pose_key"/>
+      <input_port  name="profile" default="default"/>
+    </Action>
+    <Action ID="ExecuteCartesianSegment">
+      <input_port  name="pose_key"/>
+      <input_port  name="profile" default="default"/>
+    </Action>
+    <Action ID="StoreCurrentPose">
+      <output_port name="pose_key"/>
+    </Action>
+    <Action ID="ComputeTCPTarget">
+      <input_port  name="target_xyz"/>
+      <input_port  name="tcp_offset_xyz"           default="0.0;0.0;0.0"/>
+      <input_port  name="tcp_offset_rpy_deg"       default="0.0;0.0;0.0"/>
+      <input_port  name="use_current_orientation"  default="true"/>
+      <input_port  name="fixed_rpy_deg"            default="0.0;0.0;0.0"/>
+      <output_port name="out_key"/>
+    </Action>
+    <Action ID="OffsetPoseInBaseFrame">
+      <input_port  name="in_key"/>
+      <input_port  name="dx" default="0.0"/>
+      <input_port  name="dy" default="0.0"/>
+      <input_port  name="dz" default="0.0"/>
+      <output_port name="out_key"/>
+    </Action>
+    <Action ID="ActivateTool">
+      <input_port  name="tool"/>
+    </Action>
+    <Action ID="ReleaseTool">
+      <input_port  name="tool"/>
+    </Action>
+    <Action ID="RemoveSceneObject">
+      <input_port  name="object_id"/>
+    </Action>
+    <Action ID="TeleportSceneObject">
+      <input_port  name="object_id"/>
+      <input_port  name="pose_key"/>
+      <input_port  name="force_upright" default="false"/>
+      <input_port  name="override_z"    default=""/>
+    </Action>
+    <Action ID="WaitMs">
+      <input_port  name="duration_ms" default="100"/>
+    </Action>
+    <Action ID="LogMessage">
+      <input_port  name="message"/>
+    </Action>
+    <Action ID="GetDetectedObjectPose">
+      <input_port  name="topic"            default="/detected_objects/poses_6d"/>
+      <input_port  name="object_index"     default="0"/>
+      <input_port  name="target_frame"     default="base_link"/>
+      <input_port  name="wait_timeout_sec" default="5.0"/>
+      <input_port  name="tf_timeout_sec"   default="2.0"/>
+      <output_port name="out_key"/>
+    </Action>
+    <Action ID="ComputeSuctionPickPose">
+      <input_port  name="detected_pose_key"/>
+      <input_port  name="tool_offset_z"      default="0.190"/>
+      <input_port  name="flip_z"             default="true"/>
+      <input_port  name="reference_pose_key" default="approach_pose"/>
+      <output_port name="out_key"/>
+    </Action>
+  </TreeNodesModel>
+
+</root>
